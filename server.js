@@ -186,27 +186,34 @@ app.get('/api/novels/:id/chapters/:index', (req, res) => {
   });
 });
 
-// 上传小说
+// 上传小说（支持文件上传和直接粘贴文本）
 app.post('/api/novels', upload.single('file'), async (req, res) => {
   try {
     if (!checkPassword(req)) return res.status(403).json({ error: '密码错误，无权限操作' });
-    if (!req.file) return res.status(400).json({ error: '请上传文件' });
 
     const { title, author, synopsis, tags } = req.body;
     if (!title) return res.status(400).json({ error: '请输入书名' });
 
-    const filePath = req.file.path;
-    const ext = path.extname(req.file.originalname).toLowerCase();
     let rawText = '';
 
-    if (ext === '.docx') {
-      const result = await mammoth.extractRawText({ path: filePath });
-      rawText = result.value;
+    if (req.body.text) {
+      // 直接粘贴文本模式
+      rawText = req.body.text;
+    } else if (req.file) {
+      // 文件上传模式
+      const filePath = req.file.path;
+      const ext = path.extname(req.file.originalname).toLowerCase();
+      if (ext === '.docx') {
+        const result = await mammoth.extractRawText({ path: filePath });
+        rawText = result.value;
+      } else {
+        rawText = fs.readFileSync(filePath, 'utf-8');
+      }
     } else {
-      rawText = fs.readFileSync(filePath, 'utf-8');
+      return res.status(400).json({ error: '请上传文件或粘贴正文' });
     }
 
-    if (!rawText.trim()) return res.status(400).json({ error: '文件内容为空' });
+    if (!rawText.trim()) return res.status(400).json({ error: '内容为空' });
 
     const chapterHeaders = detectChapters(rawText);
     const chapterContents = splitContent(rawText, chapterHeaders);
@@ -249,6 +256,39 @@ app.post('/api/novels', upload.single('file'), async (req, res) => {
     console.error('上传失败:', err);
     res.status(500).json({ error: err.message || '上传失败' });
   }
+});
+
+// 向已有小说追加章节
+app.post('/api/novels/:id/chapters', (req, res) => {
+  if (!checkPassword(req)) return res.status(403).json({ error: '密码错误，无权限操作' });
+
+  const novels = readData();
+  const novel = novels.find(n => n.id === req.params.id);
+  if (!novel) return res.status(404).json({ error: '小说不存在' });
+
+  const { text } = req.body;
+  if (!text || !text.trim()) return res.status(400).json({ error: '请输入章节内容' });
+
+  const chapterHeaders = detectChapters(text);
+  const chapterContents = splitContent(text, chapterHeaders);
+
+  const startIndex = novel.chapters.length;
+  chapterContents.forEach((ch, i) => {
+    const fileName = `${novel.id}_ch${startIndex + i}.html`;
+    const htmlContent = textToHtml(ch.content);
+    fs.writeFileSync(path.join(__dirname, 'novels', fileName), htmlContent, 'utf-8');
+    novel.chapters.push({
+      index: startIndex + i,
+      title: ch.title,
+      file: fileName,
+      wordCount: ch.content.replace(/\s/g, '').length
+    });
+  });
+
+  novel.totalWords = novel.chapters.reduce((sum, ch) => sum + ch.wordCount, 0);
+  writeData(novels);
+
+  res.json({ message: '章节添加成功', addedCount: chapterContents.length });
 });
 
 // 删除小说

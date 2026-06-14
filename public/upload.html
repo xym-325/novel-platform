@@ -63,16 +63,36 @@
       <div class="form-hint">用逗号或空格分隔多个标签</div>
     </div>
 
-    <!-- 文件上传 -->
+    <!-- 上传方式切换 -->
     <div class="form-group">
-      <label>小说文件 *</label>
-      <div class="upload-zone" id="uploadZone">
-        <div class="upload-icon">📂</div>
-        <p>点击选择文件或拖拽到此处</p>
-        <p class="upload-hint">支持 .txt / .docx / .md 格式，最大 50MB</p>
-        <input type="file" id="fileInput" name="file" accept=".txt,.docx,.md" required>
+      <label>上传方式</label>
+      <div style="display:flex;gap:8px;">
+        <button type="button" class="btn btn-primary" id="tabFile" onclick="switchTab('file')">📂 上传文件</button>
+        <button type="button" class="btn btn-outline" id="tabText" onclick="switchTab('text')">✏️ 直接粘贴文本</button>
       </div>
-      <div id="fileInfo" style="display:none;"></div>
+    </div>
+
+    <!-- 文件上传区域 -->
+    <div id="fileUploadSection">
+      <div class="form-group">
+        <label>小说文件</label>
+        <div class="upload-zone" id="uploadZone">
+          <div class="upload-icon">📂</div>
+          <p>点击选择文件或拖拽到此处</p>
+          <p class="upload-hint">支持 .txt / .docx / .md 格式，最大 50MB</p>
+          <input type="file" id="fileInput" name="file" accept=".txt,.docx,.md">
+        </div>
+        <div id="fileInfo" style="display:none;"></div>
+      </div>
+    </div>
+
+    <!-- 直接粘贴文本区域 -->
+    <div id="textPasteSection" style="display:none;">
+      <div class="form-group">
+        <label>小说正文</label>
+        <textarea id="pastedText" placeholder="在此粘贴或输入小说正文...&#10;&#10;章节会自动识别，支持以下格式：&#10;  第一章 xxx&#10;  第二章 xxx&#10;  Chapter 1 xxx&#10;  ## 章节名" style="width:100%;min-height:350px;font-family:Consolas,monospace;font-size:13px;line-height:1.8;"></textarea>
+        <div class="form-hint">可以直接从 WPS/Word 复制粘贴，章节会自动识别</div>
+      </div>
     </div>
 
     <!-- 章节预览 -->
@@ -86,6 +106,37 @@
 </div>
 
 <script>
+// ---------- 上传方式切换 ----------
+let uploadMode = 'file'; // 'file' | 'text'
+
+function switchTab(mode) {
+  uploadMode = mode;
+  document.getElementById('tabFile').className = mode === 'file' ? 'btn btn-primary' : 'btn btn-outline';
+  document.getElementById('tabText').className = mode === 'text' ? 'btn btn-primary' : 'btn btn-outline';
+  document.getElementById('fileUploadSection').style.display = mode === 'file' ? 'block' : 'none';
+  document.getElementById('textPasteSection').style.display = mode === 'text' ? 'block' : 'none';
+  // 切换时重置预览
+  document.getElementById('chapterPreview').style.display = 'none';
+  document.getElementById('submitBtn').textContent = '上传小说';
+}
+
+// 文本区域实时章节预览
+document.getElementById('pastedText').addEventListener('input', function() {
+  const text = this.value;
+  if (!text.trim()) {
+    document.getElementById('chapterPreview').style.display = 'none';
+    return;
+  }
+  const chapters = detectChaptersFrontend(text);
+  const preview = document.getElementById('chapterPreview');
+  preview.style.display = 'block';
+  if (chapters.length === 0) {
+    preview.innerHTML = `<div class="chapter-preview"><h3>📑 章节预览</h3><p style="padding:16px;color:var(--text-muted);font-size:14px;">未检测到章节标记，将作为单章上传（共 ${text.replace(/\\s/g,'').length} 字）</p></div>`;
+  } else {
+    preview.innerHTML = `<div class="chapter-preview"><h3>📑 检测到 ${chapters.length} 个章节</h3><ul>${chapters.map((ch, i) => `<li><span class="ch-num">${i + 1}</span>${escapeHtml(ch.title)}</li>`).join('')}</ul></div>`;
+  }
+});
+
 // ---------- 密码验证 ----------
 // 如果之前验证通过，直接显示内容
 if (sessionStorage.getItem('auth-password')) {
@@ -243,32 +294,50 @@ document.getElementById('synopsis').addEventListener('input', function() {
 document.getElementById('uploadForm').addEventListener('submit', async function(e) {
   e.preventDefault();
 
-  const file = fileInput.files[0];
-  if (!file) {
-    showToast('请选择小说文件', 'error');
-    return;
-  }
+  const title = document.getElementById('title').value.trim();
+  if (!title) { showToast('请输入书名', 'error'); return; }
 
   const submitBtn = document.getElementById('submitBtn');
   submitBtn.disabled = true;
   submitBtn.textContent = '正在上传...';
 
-  const formData = new FormData();
-  formData.append('title', document.getElementById('title').value.trim());
-  formData.append('author', document.getElementById('author').value.trim());
-  formData.append('synopsis', document.getElementById('synopsis').value.trim());
-  formData.append('tags', document.getElementById('tags').value.trim());
-  formData.append('file', file);
-  formData.append('password', sessionStorage.getItem('auth-password') || '');
+  const pw = sessionStorage.getItem('auth-password') || '';
 
   try {
-    const res = await fetch('/api/novels', { method: 'POST', body: formData });
+    let res;
+    if (uploadMode === 'text') {
+      // 直接粘贴文本模式
+      const text = document.getElementById('pastedText').value;
+      if (!text.trim()) { showToast('请输入小说正文', 'error'); submitBtn.disabled = false; submitBtn.textContent = '上传小说'; return; }
+      res = await fetch('/api/novels', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title, text,
+          author: document.getElementById('author').value.trim(),
+          synopsis: document.getElementById('synopsis').value.trim(),
+          tags: document.getElementById('tags').value.trim(),
+          password: pw
+        })
+      });
+    } else {
+      // 文件上传模式
+      const file = fileInput.files[0];
+      if (!file) { showToast('请选择小说文件', 'error'); submitBtn.disabled = false; submitBtn.textContent = '上传小说'; return; }
+      const formData = new FormData();
+      formData.append('title', title);
+      formData.append('author', document.getElementById('author').value.trim());
+      formData.append('synopsis', document.getElementById('synopsis').value.trim());
+      formData.append('tags', document.getElementById('tags').value.trim());
+      formData.append('file', file);
+      formData.append('password', pw);
+      res = await fetch('/api/novels', { method: 'POST', body: formData });
+    }
+
     const data = await res.json();
     if (res.ok) {
       showToast(`上传成功！识别到 ${data.chapterCount} 个章节`, 'success');
-      setTimeout(() => {
-        window.location.href = `/reader.html?id=${data.id}`;
-      }, 800);
+      setTimeout(() => { window.location.href = `/reader.html?id=${data.id}`; }, 800);
     } else {
       showToast(data.error || '上传失败', 'error');
       submitBtn.disabled = false;
