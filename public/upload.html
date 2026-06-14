@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>上传小说 - 银月之庭</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <a href="/" class="logo">🌙 银月之庭</a>
+  <div class="nav-actions">
+    <a href="/" class="btn btn-outline">← 返回</a>
+  </div>
+</nav>
+
+<!-- 密码门禁 -->
+<div class="modal-overlay" id="passwordGate">
+  <div class="modal">
+    <h3>🔐 作者验证</h3>
+    <p>请输入作者密码才能进入上传页面</p>
+    <div class="form-group">
+      <input type="password" id="passwordInput" placeholder="请输入密码" style="width:100%;">
+    </div>
+    <p id="pwError" style="color:#c62828;font-size:13px;display:none;">密码错误</p>
+    <div class="modal-actions">
+      <a href="/" class="btn btn-outline">返回首页</a>
+      <button class="btn btn-primary" onclick="verifyPassword()">验证</button>
+    </div>
+  </div>
+</div>
+
+<div class="container" id="mainContent" style="max-width:700px;display:none;">
+  <div class="page-header">
+    <h1>上传小说</h1>
+  </div>
+
+  <form id="uploadForm">
+    <!-- 书名 -->
+    <div class="form-group">
+      <label for="title">书名 *</label>
+      <input type="text" id="title" name="title" placeholder="请输入小说书名" required maxlength="100">
+    </div>
+
+    <!-- 作者 -->
+    <div class="form-group">
+      <label for="author">作者</label>
+      <input type="text" id="author" name="author" placeholder="请输入作者名，留空则为「佚名」" maxlength="50">
+    </div>
+
+    <!-- 简介 -->
+    <div class="form-group">
+      <label for="synopsis">简介</label>
+      <textarea id="synopsis" name="synopsis" placeholder="简单介绍一下这本小说..." maxlength="500"></textarea>
+      <div class="form-hint"><span id="synopsisCount">0</span>/500</div>
+    </div>
+
+    <!-- 标签 -->
+    <div class="form-group">
+      <label for="tags">标签</label>
+      <input type="text" id="tags" name="tags" placeholder="例如：玄幻,修仙,爽文（用逗号分隔）" maxlength="200">
+      <div class="form-hint">用逗号或空格分隔多个标签</div>
+    </div>
+
+    <!-- 文件上传 -->
+    <div class="form-group">
+      <label>小说文件 *</label>
+      <div class="upload-zone" id="uploadZone">
+        <div class="upload-icon">📂</div>
+        <p>点击选择文件或拖拽到此处</p>
+        <p class="upload-hint">支持 .txt / .docx / .md 格式，最大 50MB</p>
+        <input type="file" id="fileInput" name="file" accept=".txt,.docx,.md" required>
+      </div>
+      <div id="fileInfo" style="display:none;"></div>
+    </div>
+
+    <!-- 章节预览 -->
+    <div id="chapterPreview" style="display:none;"></div>
+
+    <!-- 提交 -->
+    <button type="submit" class="btn btn-primary" id="submitBtn" style="width:100%;padding:14px;font-size:16px;margin-top:8px;">
+      上传小说
+    </button>
+  </form>
+</div>
+
+<script>
+// ---------- 密码验证 ----------
+// 如果之前验证通过，直接显示内容
+if (sessionStorage.getItem('auth-password')) {
+  document.getElementById('passwordGate').style.display = 'none';
+  document.getElementById('mainContent').style.display = 'block';
+}
+
+async function verifyPassword() {
+  const input = document.getElementById('passwordInput').value;
+  // 发到后端验证
+  try {
+    const res = await fetch('/api/novels/check-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: input })
+    });
+    if (res.ok) {
+      sessionStorage.setItem('auth-password', input);
+      document.getElementById('passwordGate').style.display = 'none';
+      document.getElementById('mainContent').style.display = 'block';
+      document.getElementById('pwError').style.display = 'none';
+    } else {
+      document.getElementById('pwError').style.display = 'block';
+      document.getElementById('passwordInput').value = '';
+    }
+  } catch {
+    document.getElementById('pwError').style.display = 'block';
+  }
+}
+
+// 回车键提交
+document.getElementById('passwordInput').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') verifyPassword();
+});
+
+// ---------- 文件上传区域交互 ----------
+const uploadZone = document.getElementById('uploadZone');
+const fileInput = document.getElementById('fileInput');
+const fileInfo = document.getElementById('fileInfo');
+
+uploadZone.addEventListener('click', () => fileInput.click());
+
+uploadZone.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  uploadZone.classList.add('drag-over');
+});
+uploadZone.addEventListener('dragleave', () => {
+  uploadZone.classList.remove('drag-over');
+});
+uploadZone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  uploadZone.classList.remove('drag-over');
+  if (e.dataTransfer.files.length) {
+    fileInput.files = e.dataTransfer.files;
+    handleFileSelect();
+  }
+});
+
+fileInput.addEventListener('change', handleFileSelect);
+
+function handleFileSelect() {
+  const file = fileInput.files[0];
+  if (!file) return;
+
+  fileInfo.style.display = 'flex';
+  fileInfo.className = 'file-info';
+  const sizeMB = (file.size / 1024 / 1024).toFixed(1);
+  fileInfo.innerHTML = `
+    <span>📄 ${file.name}</span>
+    <span style="color:var(--text-muted)">${sizeMB} MB</span>
+    <span class="file-remove" onclick="removeFile()">✕</span>
+  `;
+
+  // 预览章节
+  previewChapters(file);
+}
+
+function removeFile() {
+  fileInput.value = '';
+  fileInfo.style.display = 'none';
+  document.getElementById('chapterPreview').style.display = 'none';
+}
+
+// ---------- 章节预览 ----------
+async function previewChapters(file) {
+  const preview = document.getElementById('chapterPreview');
+
+  let text = '';
+  if (file.name.endsWith('.txt') || file.name.endsWith('.md')) {
+    text = await file.text();
+  } else if (file.name.endsWith('.docx')) {
+    // .docx 在前端无法直接解析纯文本做章节预览，显示提示
+    preview.style.display = 'block';
+    preview.innerHTML = `
+      <div class="chapter-preview">
+        <h3>📑 章节预览</h3>
+        <p style="padding:16px;color:var(--text-muted);font-size:14px;">
+          .docx 文件的章节将在上传后自动识别
+        </p>
+      </div>
+    `;
+    return;
+  } else {
+    return;
+  }
+
+  // 前端章节检测
+  const chapters = detectChaptersFrontend(text);
+
+  preview.style.display = 'block';
+  if (chapters.length === 0) {
+    preview.innerHTML = `
+      <div class="chapter-preview">
+        <h3>📑 章节预览</h3>
+        <p style="padding:16px;color:var(--text-muted);font-size:14px;">
+          未检测到章节标记，将作为单章上传（共 ${text.replace(/\s/g,'').length} 字）
+        </p>
+      </div>
+    `;
+  } else {
+    preview.innerHTML = `
+      <div class="chapter-preview">
+        <h3>📑 检测到 ${chapters.length} 个章节</h3>
+        <ul>
+          ${chapters.map((ch, i) => `<li><span class="ch-num">${i + 1}</span>${escapeHtml(ch.title)}</li>`).join('')}
+        </ul>
+      </div>
+    `;
+  }
+}
+
+function detectChaptersFrontend(text) {
+  const patterns = [
+    /^第[零一二三四五六七八九十百千万\d]+[章节卷部回]/gm,
+    /^Chapter\s+\d+/gim,
+    /^Part\s+\d+/gim,
+    /^[#]{1,3}\s+.+/gm,
+    /^[序楔终尾][章言声]/gm,
+  ];
+  for (const pattern of patterns) {
+    const matches = [...text.matchAll(pattern)];
+    if (matches.length >= 1) {
+      return matches.map(m => ({ title: m[0].trim() }));
+    }
+  }
+  return [];
+}
+
+// ---------- 简介字数统计 ----------
+document.getElementById('synopsis').addEventListener('input', function() {
+  document.getElementById('synopsisCount').textContent = this.value.length;
+});
+
+// ---------- 表单提交 ----------
+document.getElementById('uploadForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+
+  const file = fileInput.files[0];
+  if (!file) {
+    showToast('请选择小说文件', 'error');
+    return;
+  }
+
+  const submitBtn = document.getElementById('submitBtn');
+  submitBtn.disabled = true;
+  submitBtn.textContent = '正在上传...';
+
+  const formData = new FormData();
+  formData.append('title', document.getElementById('title').value.trim());
+  formData.append('author', document.getElementById('author').value.trim());
+  formData.append('synopsis', document.getElementById('synopsis').value.trim());
+  formData.append('tags', document.getElementById('tags').value.trim());
+  formData.append('file', file);
+  formData.append('password', sessionStorage.getItem('auth-password') || '');
+
+  try {
+    const res = await fetch('/api/novels', { method: 'POST', body: formData });
+    const data = await res.json();
+    if (res.ok) {
+      showToast(`上传成功！识别到 ${data.chapterCount} 个章节`, 'success');
+      setTimeout(() => {
+        window.location.href = `/reader.html?id=${data.id}`;
+      }, 800);
+    } else {
+      showToast(data.error || '上传失败', 'error');
+      submitBtn.disabled = false;
+      submitBtn.textContent = '上传小说';
+    }
+  } catch (err) {
+    showToast('上传失败: ' + err.message, 'error');
+    submitBtn.disabled = false;
+    submitBtn.textContent = '上传小说';
+  }
+});
+
+// ---------- Toast ----------
+function showToast(msg, type) {
+  const existing = document.querySelector('.toast');
+  if (existing) existing.remove();
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.textContent = msg;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 3000);
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+</script>
+</body>
+</html>

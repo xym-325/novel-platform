@@ -1,0 +1,7 @@
+node_modules/
+uploads/
+novels/
+data/
+*.zip
+*.exe
+.env

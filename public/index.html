@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>小说创作平台</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- 导航栏 -->
+<nav class="navbar">
+  <a href="/" class="logo">🌙 银月之庭</a>
+  <div class="nav-actions">
+    <a href="/upload.html" class="btn btn-primary">+ 上传小说</a>
+  </div>
+</nav>
+
+<!-- 主内容 -->
+<div class="container">
+  <div class="page-header">
+    <h1>作品列表</h1>
+    <span style="color:var(--text-muted);font-size:14px;" id="novelCount"></span>
+  </div>
+
+  <!-- 搜索 -->
+  <div class="search-bar">
+    <input type="text" id="searchInput" placeholder="搜索书名、作者或简介...">
+  </div>
+
+  <!-- 小说网格 -->
+  <div class="novel-grid" id="novelGrid"></div>
+
+  <!-- 空状态 -->
+  <div class="empty-state" id="emptyState" style="display:none;">
+    <div class="empty-icon">📖</div>
+    <h3>还没有小说</h3>
+    <p>上传第一本小说，开始创作之旅吧</p>
+    <a href="/upload.html" class="btn btn-primary">上传小说</a>
+  </div>
+</div>
+
+<script>
+// ---------- 加载小说列表 ----------
+async function loadNovels() {
+  try {
+    const res = await fetch('/api/novels');
+    const novels = await res.json();
+    renderNovels(novels);
+  } catch (err) {
+    console.error('加载失败:', err);
+  }
+}
+
+function renderNovels(novels) {
+  const grid = document.getElementById('novelGrid');
+  const empty = document.getElementById('emptyState');
+  const count = document.getElementById('novelCount');
+
+  count.textContent = `共 ${novels.length} 部作品`;
+
+  if (novels.length === 0) {
+    grid.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+
+  empty.style.display = 'none';
+  grid.innerHTML = novels.map(n => `
+    <div class="novel-card" onclick="openReader('${n.id}')">
+      <div class="card-cover" style="background:${n.coverColor}">
+        ${n.title.charAt(0)}
+      </div>
+      <button class="card-delete" onclick="event.stopPropagation();deleteNovel('${n.id}')" title="删除">✕</button>
+      <div class="card-body">
+        <div class="card-title">${escapeHtml(n.title)}</div>
+        <div class="card-author">${escapeHtml(n.author)}</div>
+        <div class="card-synopsis">${escapeHtml(n.synopsis)}</div>
+        <div class="card-meta">
+          <span>📄 ${n.chapterCount} 章</span>
+          <span>📝 ${formatWordCount(n.totalWords)}</span>
+          <span>🕐 ${formatDate(n.createdAt)}</span>
+        </div>
+        ${n.tags && n.tags.length > 0 ? `
+        <div class="card-tags">
+          ${n.tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')}
+        </div>` : ''}
+      </div>
+    </div>
+  `).join('');
+}
+
+// ---------- 打开阅读器 ----------
+function openReader(id) {
+  window.location.href = `/reader.html?id=${id}`;
+}
+
+// ---------- 删除小说 ----------
+async function deleteNovel(id) {
+  // 获取或询问密码
+  let pw = sessionStorage.getItem('auth-password');
+  if (!pw) {
+    pw = prompt('请输入作者密码以删除小说：');
+    if (!pw) return;
+  }
+  if (!confirm('确定要删除这本小说吗？此操作不可撤销。')) return;
+  try {
+    const res = await fetch(`/api/novels/${id}?password=${encodeURIComponent(pw)}`, { method: 'DELETE' });
+    if (res.ok) {
+      sessionStorage.setItem('auth-password', pw);
+      loadNovels();
+    } else {
+      sessionStorage.removeItem('auth-password');
+      const d = await res.json();
+      alert(d.error || '密码错误');
+    }
+  } catch (err) {
+    alert('删除失败: ' + err.message);
+  }
+}
+
+// ---------- 搜索 ----------
+document.getElementById('searchInput').addEventListener('input', async function() {
+  const keyword = this.value.trim().toLowerCase();
+  const res = await fetch('/api/novels');
+  const novels = await res.json();
+  if (!keyword) {
+    renderNovels(novels);
+    return;
+  }
+  const filtered = novels.filter(n =>
+    n.title.toLowerCase().includes(keyword) ||
+    n.author.toLowerCase().includes(keyword) ||
+    n.synopsis.toLowerCase().includes(keyword) ||
+    (n.tags && n.tags.some(t => t.toLowerCase().includes(keyword)))
+  );
+  renderNovels(filtered);
+});
+
+// ---------- 工具函数 ----------
+function escapeHtml(str) {
+  if (!str) return '';
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function formatDate(iso) {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function formatWordCount(n) {
+  if (n >= 10000) return (n / 10000).toFixed(1) + '万字';
+  if (n >= 1000) return (n / 1000).toFixed(1) + '千字';
+  return n + '字';
+}
+
+// ---------- 启动 ----------
+loadNovels();
+</script>
+</body>
+</html>
