@@ -2,15 +2,13 @@
    银月之庭 - 统一样式
    ========================================== */
 
-/* ---------- 背景图 ---------- */
-/* 把图片放到 public/bg.jpg，平台自动读取；不想要背景图就删掉该文件 */
-body::before {
+/* ---------- 背景图（仅首页/上传页） ---------- */
+.with-bg::before {
   content: '';
   position: fixed;
   inset: 0;
   z-index: -1;
   background: url('/bg.jpg') center/cover no-repeat fixed;
-  /* 图片不存在时自动降级为纯色，不影响使用 */
 }
 
 /* ---------- CSS 变量 & 主题 ---------- */
@@ -80,6 +78,37 @@ body {
   line-height: 1.6;
   transition: background var(--transition), color var(--transition);
   min-height: 100vh;
+}
+
+/* 阅读器页面：纯色背景，无毛玻璃，更护眼 */
+body:not(.with-bg) {
+  --bg: #f5f0eb;
+  --bg-card: #fff;
+  --border: #e0d5c7;
+  --accent-light: #f0e6d9;
+  --reader-bg: #faf6f0;
+}
+/* 阅读器夜间模式纯色 */
+body:not(.with-bg)[data-theme="dark"] {
+  --bg: #1a1a1a;
+  --bg-card: #2a2a2a;
+  --border: #3a3a3a;
+  --accent-light: #2a2218;
+  --reader-bg: #1e1e1e;
+}
+/* 阅读器护眼模式纯色 */
+body:not(.with-bg)[data-theme="eye"] {
+  --bg: #e8f0e0;
+  --bg-card: #f4f8f0;
+  --border: #c8d8b8;
+  --accent-light: #dce8d4;
+  --reader-bg: #e8f0e0;
+}
+body:not(.with-bg) .navbar,
+body:not(.with-bg) .reader-sidebar,
+body:not(.with-bg) .reader-toolbar {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 a { color: var(--accent); text-decoration: none; }
